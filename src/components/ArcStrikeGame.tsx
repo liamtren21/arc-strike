@@ -33,9 +33,20 @@ import {
   drawArcAlertBanner,
 } from '../graphics/crtShaderRenderer';
 
+interface LiveArc {
+  p1: { x: number; y: number };
+  p2: { x: number; y: number };
+  intensity: number;
+  isFault: boolean;
+  life: number;
+  maxLife: number;
+}
+
 export const ArcStrikeGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particleSysRef = useRef<PlasmaParticleSystem>(new PlasmaParticleSystem());
+  const screenShakeRef = useRef<number>(0);
+  const persistentArcsRef = useRef<LiveArc[]>([]);
 
   // Game States
   const [mode, setMode] = useState<VoltageMode>(VoltageMode.AC_SYNCHRONOUS);
@@ -92,15 +103,24 @@ export const ArcStrikeGame: React.FC = () => {
     setBannerInfo(null);
     setMultiplierDisplay(0);
     setEvaluatingIndex(-1);
+    persistentArcsRef.current = [];
 
     // Slam switch lever shut
     setLeverProgress(1);
+    screenShakeRef.current = 6.0;
 
     // Execute round
     const result: RoundResult = simulateStandaloneRound(mode, wager);
 
     // Capacitor charge sound
     arcAudio.playCapacitorWhine(1.0);
+
+    const w = canvasRef.current?.width || 960;
+    const h = canvasRef.current?.height || 540;
+    const floorY = h - 90;
+    const coilLeftToroid = { x: 85, y: floorY - 260 + 28 };
+    const coilRightToroid = { x: w - 85, y: floorY - 260 + 28 };
+    const positions = getInsulatorPositions(w, h);
 
     // Sequential Insulator Testing Sequence
     let step = 0;
@@ -114,26 +134,75 @@ export const ArcStrikeGame: React.FC = () => {
           const nextKv = INSULATORS[step].kv;
           setTargetKv(nextKv);
           setMultiplierDisplay(MULTIPLIERS_BPS[mode][step + 1] / 10000);
-          setAmbientFlash(1.0);
+          setAmbientFlash(1.2);
+          screenShakeRef.current = 4.0;
 
           arcAudio.playArcSpark(1 + step * 0.15);
 
-          const w = canvasRef.current?.width || 960;
-          const h = canvasRef.current?.height || 540;
-          const positions = getInsulatorPositions(w, h);
-          particleSysRef.current.emitSparks(positions[step].electrodeX, positions[step].electrodeY, 16, false);
+          // Add high-energy persistent arc from left coil
+          persistentArcsRef.current.push({
+            p1: coilLeftToroid,
+            p2: { x: positions[step].electrodeX, y: positions[step].electrodeY },
+            intensity: 1.0,
+            isFault: false,
+            life: 0,
+            maxLife: 32,
+          });
 
+          // Add bridge arc from previous insulator
+          if (step > 0) {
+            persistentArcsRef.current.push({
+              p1: { x: positions[step - 1].electrodeX, y: positions[step - 1].electrodeY },
+              p2: { x: positions[step].electrodeX, y: positions[step].electrodeY },
+              intensity: 1.1,
+              isFault: false,
+              life: 0,
+              maxLife: 42,
+            });
+          }
+
+          // Supporting arc from right coil on high voltage stages
+          if (step >= 2) {
+            persistentArcsRef.current.push({
+              p1: coilRightToroid,
+              p2: { x: positions[step].electrodeX, y: positions[step].electrodeY },
+              intensity: 0.85,
+              isFault: false,
+              life: 0,
+              maxLife: 30,
+            });
+          }
+
+          particleSysRef.current.emitSparks(positions[step].electrodeX, positions[step].electrodeY, 24, false);
           step++;
         } else {
           // Ground Fault / Porcelain Blowout at this step
           setFaultStage(step);
-          setAmbientFlash(1.6);
+          setAmbientFlash(2.0);
+          screenShakeRef.current = 16.0;
           arcAudio.playBlowoutFault();
 
-          const w = canvasRef.current?.width || 960;
-          const h = canvasRef.current?.height || 540;
-          const positions = getInsulatorPositions(w, h);
-          particleSysRef.current.emitSparks(positions[step].electrodeX, positions[step].electrodeY, 45, true);
+          // Violent fault arc from coil to faulty insulator
+          persistentArcsRef.current.push({
+            p1: coilLeftToroid,
+            p2: { x: positions[step].electrodeX, y: positions[step].electrodeY },
+            intensity: 1.3,
+            isFault: true,
+            life: 0,
+            maxLife: 45,
+          });
+
+          // Violent ground blowout arc crashing down to floor
+          persistentArcsRef.current.push({
+            p1: { x: positions[step].electrodeX, y: positions[step].electrodeY },
+            p2: { x: positions[step].electrodeX, y: floorY },
+            intensity: 1.5,
+            isFault: true,
+            life: 0,
+            maxLife: 50,
+          });
+
+          particleSysRef.current.emitSparks(positions[step].electrodeX, positions[step].electrodeY, 60, true);
 
           clearInterval(stepInterval);
           finishRound(result);
@@ -149,43 +218,65 @@ export const ArcStrikeGame: React.FC = () => {
       setTimeout(() => {
         setIsPlaying(false);
         setEvaluatingIndex(-1);
-        setLeverProgress(0);
 
-        if (res.payoutUsdc > 0) {
+        // Reset lever position with spring return
+        setTimeout(() => setLeverProgress(0), 1000);
+
+        const isWin = res.multiplierBps > 0;
+        if (isWin) {
           setBalance(prev => prev + res.payoutUsdc);
-        }
-
-        if (res.isJackpot) {
           arcAudio.playOverloadJackpot();
-          setBannerInfo({
-            title: '⚡ FULL 500kV TESLA OVERLOAD JACKPOT! ⚡',
-            subtitle: `MAXIMUM VOLTAGE REACHED! AWARDED: +$${res.payoutUsdc.toFixed(2)} USDC (${res.multiplier.toFixed(2)}x)`,
-            isVictory: true,
-          });
-          confetti({
-            particleCount: 90,
-            spread: 100,
-            origin: { y: 0.6 },
-            colors: ['#67e8f9', '#c084fc', '#fef08a', '#ffffff'],
-          });
-        } else if (res.payoutUsdc > 0) {
-          setBannerInfo({
-            title: '⚡ DIELECTRIC SUSTAINED — PARTIAL HARVEST ⚡',
-            subtitle: `CLEARED ${res.cleared}/5 INSULATORS | PAYOUT: +$${res.payoutUsdc.toFixed(2)} USDC (${res.multiplier.toFixed(2)}x)`,
-            isVictory: true,
-          });
+          screenShakeRef.current = 12.0;
+
+          if (res.cleared === 5) {
+            confetti({
+              particleCount: 150,
+              spread: 90,
+              origin: { y: 0.6 },
+              colors: ['#38bdf8', '#f59e0b', '#c084fc', '#ffffff'],
+            });
+            setBannerInfo({
+              title: '⚡ FULL TESLA OVERLOAD ACHIEVED! ⚡',
+              subtitle: `5/5 INSULATORS WITHSTOOD HIGH TENSION • +$${res.payoutUsdc.toFixed(2)} USDC`,
+              isVictory: true,
+            });
+
+            // Monumental Jackpot Storm Arcs
+            persistentArcsRef.current.push({
+              p1: coilLeftToroid,
+              p2: { x: positions[0].electrodeX, y: positions[0].electrodeY },
+              intensity: 1.2,
+              isFault: false,
+              life: 0,
+              maxLife: 60,
+            });
+            persistentArcsRef.current.push({
+              p1: coilRightToroid,
+              p2: { x: positions[4].electrodeX, y: positions[4].electrodeY },
+              intensity: 1.2,
+              isFault: false,
+              life: 0,
+              maxLife: 60,
+            });
+          } else {
+            setBannerInfo({
+              title: `STAGE ${res.cleared} SURGE CLEARED!`,
+              subtitle: `CIRCUIT SUSTAINED ${INSULATORS[res.cleared - 1].kv} kV • +$${res.payoutUsdc.toFixed(2)} USDC`,
+              isVictory: true,
+            });
+          }
         } else {
           setBannerInfo({
-            title: '⚠ ARC FAULT DETECTED: INSULATOR PUNCTURED ⚠',
-            subtitle: `DIELECTRIC BREAKDOWN AT STAGE ${res.faultStage! + 1} (${INSULATORS[res.faultStage!].name}) | 0.00x`,
+            title: '⚠ DIELECTRIC BREAKDOWN: ARC FAULT ⚠',
+            subtitle: `GROUND FAULT AT STAGE ${res.cleared + 1} • ENERGY GROUNDED TO EARTH`,
             isVictory: false,
           });
         }
-      }, 300);
+      }, 500);
     };
   }, [isPlaying, balance, wager, mode]);
 
-  // Main 60 FPS Render Loop
+  // Main Canvas Render Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -202,55 +293,80 @@ export const ArcStrikeGame: React.FC = () => {
       const h = canvas.height;
       const floorY = h - 90;
 
-      // Smooth lerp voltage needle
-      setCurrentKv(prev => prev + (targetKv - prev) * 0.12);
+      // Ballistic Needle Inertia Easing for Galvanometer
+      setCurrentKv(prev => {
+        const diff = targetKv - prev;
+        return Math.abs(diff) < 0.5 ? targetKv : prev + diff * 0.12;
+      });
 
-      // Fade ambient lightning flash
-      setAmbientFlash(prev => Math.max(0, prev * 0.88));
+      // Ambient Flash Decay
+      setAmbientFlash(prev => Math.max(0, prev * 0.86));
 
-      // 1. Draw Tesla Lab Background & High-Def Dual Coils
+      // Reset canvas
+      ctx.clearRect(0, 0, w, h);
+
+      // Apply Spring-Damped Screen Shake Recoil to Entire Chamber
+      ctx.save();
+      if (screenShakeRef.current > 0.05) {
+        const sx = (Math.random() - 0.5) * screenShakeRef.current * 1.5;
+        const sy = (Math.random() - 0.5) * screenShakeRef.current * 1.5;
+        ctx.translate(sx, sy);
+        screenShakeRef.current *= 0.88;
+      }
+
+      // 1. Draw Atmospheric 1899 Laboratory & Monumental Tesla Coils
       drawTeslaLaboratory(ctx, w, h, frame, ambientFlash);
 
       // 2. Insulator Coordinates
       const positions = getInsulatorPositions(w, h);
+      const coilLeftToroid = { x: 85, y: floorY - 260 + 28 };
 
-      // 3. Draw Active Arcs between Coil and Insulators
-      if (isPlaying) {
-        // Arc from Left Tesla Coil toroid to active electrode
-        const coilLeftToroid = { x: 80, y: floorY - 240 + 20 };
-        const activeTarget = evaluatingIndex >= 0 ? positions[Math.min(evaluatingIndex, 4)] : null;
-
-        if (activeTarget) {
-          const targetPt = { x: activeTarget.electrodeX, y: activeTarget.electrodeY };
-          const isFault = faultStage === evaluatingIndex;
-          drawPlasmaArc(ctx, coilLeftToroid, targetPt, 1.0, isFault);
-
-          // If ground fault, arc jumps from electrode down to bench/floor
-          if (isFault) {
-            const groundPt = { x: activeTarget.electrodeX, y: floorY };
-            drawPlasmaArc(ctx, targetPt, groundPt, 1.2, true);
-          }
+      // 3. Render Persistent Live Plasma Electrical Arcs
+      for (let i = persistentArcsRef.current.length - 1; i >= 0; i--) {
+        const arc = persistentArcsRef.current[i];
+        arc.life++;
+        const currentIntensity = arc.intensity * (1 - arc.life / arc.maxLife);
+        if (currentIntensity > 0.03) {
+          drawPlasmaArc(ctx, arc.p1, arc.p2, currentIntensity, arc.isFault);
         }
-
-        // Draw chain arcs between previously cleared insulators
-        for (let i = 0; i < clearedStages - 1; i++) {
-          const p1 = { x: positions[i].electrodeX, y: positions[i].electrodeY };
-          const p2 = { x: positions[i + 1].electrodeX, y: positions[i + 1].electrodeY };
-          drawPlasmaArc(ctx, p1, p2, 0.75, false);
+        if (arc.life >= arc.maxLife) {
+          persistentArcsRef.current.splice(i, 1);
         }
       }
 
-      // 4. Draw 5 Ceramic Insulators with high-def sprites
+      // Continuous subtle plasma link between cleared insulators
+      if (clearedStages > 1) {
+        for (let c = 0; c < clearedStages - 1; c++) {
+          const p1 = { x: positions[c].electrodeX, y: positions[c].electrodeY };
+          const p2 = { x: positions[c + 1].electrodeX, y: positions[c + 1].electrodeY };
+          drawPlasmaArc(ctx, p1, p2, 0.35 + Math.sin(frame * 0.2 + c) * 0.1, false);
+        }
+      }
+
+      // Idle Atmospheric Corona Crackles (Scene is always alive!)
+      if (!isPlaying && frame % 40 < 4) {
+        const targetIdx = Math.floor(Math.sin(frame * 0.1) * 2.5 + 2.5);
+        const pTarget = positions[Math.max(0, Math.min(4, targetIdx))];
+        drawPlasmaArc(
+          ctx,
+          coilLeftToroid,
+          { x: pTarget.electrodeX, y: pTarget.electrodeY },
+          0.28,
+          false
+        );
+      }
+
+      // 4. Draw 5 Ceramic Insulators with high-def sprites & live electrodes
       drawCeramicInsulators(ctx, positions, clearedStages, faultStage, evaluatingIndex, frame);
 
-      // 5. Update & Draw Physics Particle System
-      particleSysRef.current.update(floorY);
+      // 5. Update & Draw Physics Particle System (Sparks + Smoke)
+      particleSysRef.current.update(floorY, h - 175);
       particleSysRef.current.draw(ctx);
 
-      // 6. Draw Antique Brass Galvanometer (Voltmeter Dial)
-      drawGalvanometer(ctx, w / 2, 142, 50, currentKv, frame);
+      // 6. Draw Master Victorian Instrument Switchboard with Tri-Meter Cluster
+      drawGalvanometer(ctx, w / 2, 126, 44, currentKv, frame);
 
-      // 7. Draw Top Arcade Telemetry & Nixie Tubes
+      // 7. Draw Top Arcade Telemetry & Glowing Nixie Tubes
       const modeTitle = mode === VoltageMode.AC_SYNCHRONOUS ? 'AC SYNCHRONOUS' : 'DC SURGE';
       drawTopArcadeTelemetry(
         ctx,
@@ -264,10 +380,10 @@ export const ArcStrikeGame: React.FC = () => {
       );
 
       // 8. Draw Industrial Knife Switch Lever
-      const swW = 92;
-      const swH = 80;
+      const swW = 94;
+      const swH = 82;
       const swX = (w - swW) / 2;
-      const swY = h - swH - 10;
+      const swY = h - swH - 8;
       switchBoundsRef.current = drawKnifeSwitch(
         ctx,
         swX,
@@ -284,8 +400,11 @@ export const ArcStrikeGame: React.FC = () => {
         drawArcAlertBanner(ctx, w, bannerInfo.title, bannerInfo.subtitle, bannerInfo.isVictory, frame);
       }
 
-      // 10. CRT Post-Processing Scanlines & Vignette
+      // 10. CRT Post-Processing Scanlines & Glass Vignette
       drawCrtPostProcessing(ctx, w, h);
+
+      // Restore shake
+      ctx.restore();
 
       animFrameRef.current = requestAnimationFrame(render);
     };
@@ -330,8 +449,8 @@ export const ArcStrikeGame: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center justify-center p-2 sm:p-4 max-w-5xl mx-auto font-mono select-none">
-      {/* Victorian Steampunk Machine Chassis Bezel */}
-      <div className="w-full bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900 border-4 border-[#3f200c] rounded-xl shadow-[0_0_50px_rgba(0,0,0,0.95)] overflow-hidden">
+      {/* 1899 Industrial Cast-Iron Apparatus Housing */}
+      <div className="w-full industrial-chassis border-4 border-[#29180c] rounded-xl shadow-[0_0_60px_rgba(0,0,0,0.98)] overflow-hidden">
         
         {/* Engraved Brushed-Brass Header Plaque */}
         <div className="w-full flex items-center justify-between py-2.5 px-5 bg-gradient-to-r from-[#29180c] via-[#4a2e16] to-[#29180c] border-b-2 border-[#b45309] shadow-inner">
@@ -344,7 +463,7 @@ export const ArcStrikeGame: React.FC = () => {
                 ARC STRIKE • 1899 TESLA OVERLOAD
               </h1>
               <p className="text-[11px] text-amber-400/90 font-['Share_Tech_Mono'] flex items-center gap-2">
-                <span>HIGH-VOLTAGE DIELECTRIC SYSTEM</span>
+                <span>COLORADO SPRINGS EXPERIMENTAL STATION</span>
                 <span>•</span>
                 <span className="text-green-400 font-bold">CERTIFIED 96.0000% RTP</span>
               </p>
@@ -369,8 +488,8 @@ export const ArcStrikeGame: React.FC = () => {
           </div>
         </div>
 
-        {/* 16:9 Canvas Viewport */}
-        <div className="relative w-full border-y border-[#78350f]/60 bg-black">
+        {/* 16:9 High-Voltage Testing Chamber Viewport */}
+        <div className="relative w-full border-y border-[#78350f]/70 bg-black">
           <canvas
             ref={canvasRef}
             width={960}
@@ -381,58 +500,88 @@ export const ArcStrikeGame: React.FC = () => {
           />
         </div>
 
-        {/* Diegetic Industrial Control Console */}
-        <div className="w-full bg-gradient-to-b from-[#1c120c] via-[#140c08] to-[#0c0806] p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-5 border-t border-[#78350f]/60">
+        {/* Diegetic Industrial Control Switchboard Deck */}
+        <div className="w-full bg-[#14100d] p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-6 border-t-2 border-[#b45309]/50 shadow-inner">
           
-          {/* Mode Selector (Heavy Industrial Toggle Switch Style) */}
-          <div className="flex flex-col gap-1.5 w-full md:w-auto">
-            <span className="text-[11px] text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
-              <Radio className="w-3.5 h-3.5 text-amber-400" /> GENERATOR COUPLING
-            </span>
-            <div className="flex gap-2">
+          {/* Mode Selector: Heavy Industrial Dual-Throw Cam Switch */}
+          <div className="flex flex-col gap-2 w-full md:w-auto">
+            <div className="flex items-center justify-between text-[11px] text-amber-400 font-bold uppercase tracking-wider">
+              <span className="flex items-center gap-1.5">
+                <Radio className="w-3.5 h-3.5 text-amber-400" /> GENERATOR COUPLING
+              </span>
+              <span className="text-[10px] text-stone-500">HEAVY CAM SWITCH</span>
+            </div>
+
+            <div className="p-1.5 bg-[#090807] rounded-lg border border-[#442b17] shadow-inner flex gap-2">
+              {/* AC Synchronous Position */}
               <button
                 onClick={() => !isPlaying && setMode(VoltageMode.AC_SYNCHRONOUS)}
                 disabled={isPlaying}
-                className={`relative px-4 py-2.5 text-xs font-black rounded-lg border-2 transition cursor-pointer flex-1 md:flex-none flex items-center gap-2 ${
+                className={`flex-1 md:flex-none px-4 py-2.5 rounded text-xs font-black transition cursor-pointer flex items-center gap-2.5 border ${
                   mode === VoltageMode.AC_SYNCHRONOUS
-                    ? 'bg-gradient-to-b from-sky-900 to-sky-950 text-sky-200 border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.5)]'
-                    : 'bg-[#18110b] text-stone-400 border-[#4a2e16] hover:border-[#78350f]'
+                    ? 'bg-gradient-to-b from-[#0e2a47] to-[#081829] text-sky-200 border-sky-400/80 shadow-[inset_0_1px_2px_rgba(56,189,248,0.5),0_2px_8px_rgba(0,0,0,0.8)]'
+                    : 'bg-[#18130f] text-stone-400 border-stone-800 hover:border-[#78350f]'
                 }`}
               >
-                <span className={`w-2.5 h-2.5 rounded-full ${mode === VoltageMode.AC_SYNCHRONOUS ? 'bg-sky-400 shadow-[0_0_8px_#38bdf8]' : 'bg-stone-700'}`} />
-                <span>AC SYNCHRONOUS (0.7x – 12.2x)</span>
+                {/* Cyan Faceted Pilot Light */}
+                <span
+                  className={`w-3 h-3 rounded-full border border-sky-300 ${
+                    mode === VoltageMode.AC_SYNCHRONOUS
+                      ? 'bg-sky-400 shadow-[0_0_10px_#38bdf8]'
+                      : 'bg-stone-800'
+                  }`}
+                />
+                <div className="text-left">
+                  <div className="tracking-wide">AC SYNCHRONOUS</div>
+                  <div className="text-[10px] text-stone-400 font-normal">0.7x – 12.2x JACKPOT</div>
+                </div>
               </button>
 
+              {/* DC Surge Position */}
               <button
                 onClick={() => !isPlaying && setMode(VoltageMode.DC_SURGE)}
                 disabled={isPlaying}
-                className={`relative px-4 py-2.5 text-xs font-black rounded-lg border-2 transition cursor-pointer flex-1 md:flex-none flex items-center gap-2 ${
+                className={`flex-1 md:flex-none px-4 py-2.5 rounded text-xs font-black transition cursor-pointer flex items-center gap-2.5 border ${
                   mode === VoltageMode.DC_SURGE
-                    ? 'bg-gradient-to-b from-amber-900 to-amber-950 text-amber-200 border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
-                    : 'bg-[#18110b] text-stone-400 border-[#4a2e16] hover:border-[#78350f]'
+                    ? 'bg-gradient-to-b from-[#3d1808] to-[#220d04] text-amber-200 border-amber-400/80 shadow-[inset_0_1px_2px_rgba(245,158,11,0.5),0_2px_8px_rgba(0,0,0,0.8)]'
+                    : 'bg-[#18130f] text-stone-400 border-stone-800 hover:border-[#78350f]'
                 }`}
               >
-                <span className={`w-2.5 h-2.5 rounded-full ${mode === VoltageMode.DC_SURGE ? 'bg-amber-400 shadow-[0_0_8px_#f59e0b]' : 'bg-stone-700'}`} />
-                <span>DC SURGE (1.0x – 25.0x JACKPOT)</span>
+                {/* Amber Faceted Pilot Light */}
+                <span
+                  className={`w-3 h-3 rounded-full border border-amber-300 ${
+                    mode === VoltageMode.DC_SURGE
+                      ? 'bg-amber-400 shadow-[0_0_10px_#f59e0b]'
+                      : 'bg-stone-800'
+                  }`}
+                />
+                <div className="text-left">
+                  <div className="tracking-wide">DC SURGE</div>
+                  <div className="text-[10px] text-amber-500 font-bold">1.0x – 25.0x JACKPOT</div>
+                </div>
               </button>
             </div>
           </div>
 
-          {/* Stamped Milled Brass Token Stake Selector */}
-          <div className="flex flex-col gap-1.5 w-full md:w-auto items-center md:items-start">
-            <span className="text-[11px] text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-amber-400" /> STAKE TOKENS (USDC)
-            </span>
-            <div className="flex items-center gap-2">
+          {/* Stake Selector: Stamped Milled Brass Token Rack */}
+          <div className="flex flex-col gap-2 w-full md:w-auto items-center md:items-start">
+            <div className="flex items-center justify-between w-full text-[11px] text-amber-400 font-bold uppercase tracking-wider">
+              <span className="flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-amber-400" /> STAKE TOKENS (USDC)
+              </span>
+              <span className="text-[10px] text-stone-500">MILLED COINS</span>
+            </div>
+
+            <div className="p-2 bg-[#090807] rounded-lg border border-[#442b17] shadow-inner flex items-center gap-2.5">
               {[0.1, 0.5, 1.0, 5.0, 10.0].map(val => (
                 <button
                   key={val}
                   onClick={() => !isPlaying && setWager(val)}
                   disabled={isPlaying}
-                  className={`w-11 h-11 rounded-full text-xs font-black border-2 transition cursor-pointer flex items-center justify-center shadow-lg active:scale-95 ${
+                  className={`w-11 h-11 rounded-full text-xs font-black transition cursor-pointer flex items-center justify-center select-none ${
                     wager === val
-                      ? 'bg-gradient-to-b from-[#fef08a] via-[#f59e0b] to-[#b45309] text-stone-950 border-[#fff] shadow-[0_0_15px_rgba(245,158,11,0.7)] scale-105'
-                      : 'bg-gradient-to-b from-[#382012] via-[#24140a] to-[#140c08] text-amber-200 border-[#78350f] hover:border-amber-400'
+                      ? 'brass-coin-active font-extrabold'
+                      : 'brass-coin-idle text-amber-300/80 hover:text-amber-200'
                   }`}
                 >
                   ${val}
@@ -441,22 +590,33 @@ export const ArcStrikeGame: React.FC = () => {
             </div>
           </div>
 
-          {/* Massive Master Energize Industrial Push Plate */}
-          <div className="w-full md:w-auto">
-            <button
-              onClick={triggerEngagement}
-              disabled={isPlaying || balance < wager}
-              className={`w-full md:w-52 py-3.5 px-6 text-sm font-black rounded-xl border-2 uppercase tracking-widest transition shadow-2xl cursor-pointer ${
-                isPlaying
-                  ? 'bg-stone-900 text-stone-500 border-stone-800 cursor-not-allowed'
-                  : balance < wager
-                  ? 'bg-red-950 text-red-300 border-red-700 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-[#ea580c] via-[#f59e0b] to-[#ea580c] text-stone-950 border-[#fef08a] hover:brightness-115 active:scale-95 shadow-[0_0_25px_rgba(249,115,22,0.6)]'
-              }`}
-            >
-              {isPlaying ? '⚡ ENERGIZED ⚡' : balance < wager ? 'INSUFFICIENT FUNDS' : '⚡ MASTER ENERGIZE ⚡'}
-            </button>
+          {/* Master Energize Push Station with Hazard Chevrons */}
+          <div className="w-full md:w-auto flex flex-col items-center">
+            {/* Outer Die-Cast Housing with Hazard Stripes */}
+            <div className="p-1.5 rounded-xl hazard-stripes shadow-2xl w-full md:w-56">
+              <button
+                onClick={triggerEngagement}
+                disabled={isPlaying || balance < wager}
+                className={`w-full py-4 px-4 text-xs sm:text-sm font-black rounded-lg uppercase tracking-widest transition cursor-pointer flex flex-col items-center justify-center select-none ${
+                  isPlaying
+                    ? 'industrial-slam-disabled text-stone-500 border border-stone-800'
+                    : balance < wager
+                    ? 'bg-red-950 text-red-300 border-2 border-red-700 cursor-not-allowed shadow-inner'
+                    : 'industrial-slam-active text-stone-950 border-2 border-amber-200'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 drop-shadow">
+                  <Zap className="w-4 h-4 fill-current" />
+                  <span>{isPlaying ? 'ENERGIZED' : balance < wager ? 'INSUFFICIENT' : 'MASTER ENERGIZE'}</span>
+                  <Zap className="w-4 h-4 fill-current" />
+                </div>
+                <span className="text-[9px] tracking-wider opacity-85 mt-0.5">
+                  {isPlaying ? 'HIGH VOLTAGE ACTIVE' : 'SLAM TO ENGAGE'}
+                </span>
+              </button>
+            </div>
           </div>
+
         </div>
       </div>
 
