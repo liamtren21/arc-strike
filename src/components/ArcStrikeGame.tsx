@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Volume2, VolumeX, Info, Zap, ShieldAlert, Cpu } from 'lucide-react';
+import { Volume2, VolumeX, Info, Zap, ShieldAlert, Radio, Activity } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 import {
@@ -10,6 +10,7 @@ import {
   simulateStandaloneRound,
 } from '../engine/arcEngine';
 import { arcAudio } from '../audio/arcAudioEngine';
+import { assetLoader } from '../graphics/assetLoader';
 import {
   drawTeslaLaboratory,
   getInsulatorPositions,
@@ -45,7 +46,7 @@ export const ArcStrikeGame: React.FC = () => {
   const [showInfo, setShowInfo] = useState<boolean>(false);
 
   // Animation & Visual States
-  const [leverProgress, setLeverProgress] = useState<number>(0); // 0 = open, 1 = closed
+  const [leverProgress, setLeverProgress] = useState<number>(0);
   const [currentKv, setCurrentKv] = useState<number>(40);
   const [targetKv, setTargetKv] = useState<number>(40);
   const [multiplierDisplay, setMultiplierDisplay] = useState<number>(0);
@@ -59,6 +60,15 @@ export const ArcStrikeGame: React.FC = () => {
   const switchBoundsRef = useRef<KnifeSwitchBounds | null>(null);
   const animFrameRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
+
+  // Preload High-Definition Sprites
+  useEffect(() => {
+    assetLoader.preloadAssets({
+      tesla_coil: '/assets/tesla_coil.png',
+      insulator: '/assets/insulator.png',
+      knife_switch: '/assets/knife_switch.png',
+    });
+  }, []);
 
   // Toggle Audio Mute
   const toggleMute = () => {
@@ -86,7 +96,7 @@ export const ArcStrikeGame: React.FC = () => {
     // Slam switch lever shut
     setLeverProgress(1);
 
-    // Execute on-chain / standalone simulation
+    // Execute round
     const result: RoundResult = simulateStandaloneRound(mode, wager);
 
     // Capacitor charge sound
@@ -108,29 +118,28 @@ export const ArcStrikeGame: React.FC = () => {
 
           arcAudio.playArcSpark(1 + step * 0.15);
 
-          // Emit sparks at electrode
           const w = canvasRef.current?.width || 960;
           const h = canvasRef.current?.height || 540;
           const positions = getInsulatorPositions(w, h);
-          particleSysRef.current.emitSparks(positions[step].electrodeX, positions[step].electrodeY, 15, false);
+          particleSysRef.current.emitSparks(positions[step].electrodeX, positions[step].electrodeY, 16, false);
 
           step++;
         } else {
           // Ground Fault / Porcelain Blowout at this step
           setFaultStage(step);
-          setAmbientFlash(1.5);
+          setAmbientFlash(1.6);
           arcAudio.playBlowoutFault();
 
           const w = canvasRef.current?.width || 960;
           const h = canvasRef.current?.height || 540;
           const positions = getInsulatorPositions(w, h);
-          particleSysRef.current.emitSparks(positions[step].electrodeX, positions[step].electrodeY, 40, true);
+          particleSysRef.current.emitSparks(positions[step].electrodeX, positions[step].electrodeY, 45, true);
 
           clearInterval(stepInterval);
           finishRound(result);
         }
       } else {
-        // Successfully cleared all 5 stages! Full Tesla Overload Jackpot!
+        // Full Tesla Overload Jackpot!
         clearInterval(stepInterval);
         finishRound(result);
       }
@@ -140,7 +149,7 @@ export const ArcStrikeGame: React.FC = () => {
       setTimeout(() => {
         setIsPlaying(false);
         setEvaluatingIndex(-1);
-        setLeverProgress(0); // Open knife switch back up
+        setLeverProgress(0);
 
         if (res.payoutUsdc > 0) {
           setBalance(prev => prev + res.payoutUsdc);
@@ -154,8 +163,8 @@ export const ArcStrikeGame: React.FC = () => {
             isVictory: true,
           });
           confetti({
-            particleCount: 80,
-            spread: 90,
+            particleCount: 90,
+            spread: 100,
             origin: { y: 0.6 },
             colors: ['#67e8f9', '#c084fc', '#fef08a', '#ffffff'],
           });
@@ -199,7 +208,7 @@ export const ArcStrikeGame: React.FC = () => {
       // Fade ambient lightning flash
       setAmbientFlash(prev => Math.max(0, prev * 0.88));
 
-      // 1. Draw Tesla Lab Background & Dual Coils
+      // 1. Draw Tesla Lab Background & High-Def Dual Coils
       drawTeslaLaboratory(ctx, w, h, frame, ambientFlash);
 
       // 2. Insulator Coordinates
@@ -216,7 +225,7 @@ export const ArcStrikeGame: React.FC = () => {
           const isFault = faultStage === evaluatingIndex;
           drawPlasmaArc(ctx, coilLeftToroid, targetPt, 1.0, isFault);
 
-          // If ground fault, arc jumps from electrode down to floor
+          // If ground fault, arc jumps from electrode down to bench/floor
           if (isFault) {
             const groundPt = { x: activeTarget.electrodeX, y: floorY };
             drawPlasmaArc(ctx, targetPt, groundPt, 1.2, true);
@@ -231,7 +240,7 @@ export const ArcStrikeGame: React.FC = () => {
         }
       }
 
-      // 4. Draw 5 Ceramic Insulators with status lights
+      // 4. Draw 5 Ceramic Insulators with high-def sprites
       drawCeramicInsulators(ctx, positions, clearedStages, faultStage, evaluatingIndex, frame);
 
       // 5. Update & Draw Physics Particle System
@@ -255,10 +264,10 @@ export const ArcStrikeGame: React.FC = () => {
       );
 
       // 8. Draw Industrial Knife Switch Lever
-      const swW = 140;
-      const swH = 100;
+      const swW = 92;
+      const swH = 80;
       const swX = (w - swW) / 2;
-      const swY = h - swH - 12;
+      const swY = h - swH - 10;
       switchBoundsRef.current = drawKnifeSwitch(
         ctx,
         swX,
@@ -320,131 +329,141 @@ export const ArcStrikeGame: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center p-3 max-w-5xl mx-auto font-mono select-none">
-      {/* Game Title & Header Bar */}
-      <div className="w-full flex items-center justify-between py-2 px-4 bg-stone-900 border border-amber-900/60 rounded-t-lg shadow-2xl">
-        <div className="flex items-center gap-3">
-          <div className="p-1.5 bg-amber-500/10 border border-amber-500/40 rounded">
-            <Zap className="w-5 h-5 text-amber-400 animate-pulse" />
+    <div className="flex flex-col items-center justify-center p-2 sm:p-4 max-w-5xl mx-auto font-mono select-none">
+      {/* Victorian Steampunk Machine Chassis Bezel */}
+      <div className="w-full bg-gradient-to-b from-stone-900 via-stone-950 to-stone-900 border-4 border-[#3f200c] rounded-xl shadow-[0_0_50px_rgba(0,0,0,0.95)] overflow-hidden">
+        
+        {/* Engraved Brushed-Brass Header Plaque */}
+        <div className="w-full flex items-center justify-between py-2.5 px-5 bg-gradient-to-r from-[#29180c] via-[#4a2e16] to-[#29180c] border-b-2 border-[#b45309] shadow-inner">
+          <div className="flex items-center gap-3">
+            <div className="p-1.5 bg-amber-500/20 border border-amber-500/60 rounded shadow-[0_0_10px_rgba(245,158,11,0.5)]">
+              <Zap className="w-5 h-5 text-amber-300 animate-pulse" />
+            </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-black text-[#fef08a] tracking-widest font-['Cinzel',serif] drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+                ARC STRIKE • 1899 TESLA OVERLOAD
+              </h1>
+              <p className="text-[11px] text-amber-400/90 font-['Share_Tech_Mono'] flex items-center gap-2">
+                <span>HIGH-VOLTAGE DIELECTRIC SYSTEM</span>
+                <span>•</span>
+                <span className="text-green-400 font-bold">CERTIFIED 96.0000% RTP</span>
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-base font-bold text-amber-100 tracking-wider font-['Cinzel',serif]">
-              ARC STRIKE // TESLA OVERLOAD
-            </h1>
-            <p className="text-xs text-amber-500/80 font-['Share_Tech_Mono']">
-              1899 COLORADO SPRINGS HIGH-VOLTAGE LABORATORY • BASE L2 CASINO
-            </p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={toggleMute}
-            className="p-2 bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700 rounded transition cursor-pointer"
-            title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-          >
-            {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-          <button
-            onClick={() => setShowInfo(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700 rounded text-xs transition cursor-pointer"
-          >
-            <Info className="w-4 h-4" />
-            <span>RULES & RTP</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 16:9 Canvas Viewport */}
-      <div className="relative w-full border-x border-b border-amber-950/80 shadow-[0_0_35px_rgba(0,0,0,0.8)] overflow-hidden bg-black">
-        <canvas
-          ref={canvasRef}
-          width={960}
-          height={540}
-          onMouseMove={handleMouseMove}
-          onClick={handleCanvasClick}
-          className="w-full h-auto block cursor-pointer"
-        />
-      </div>
-
-      {/* Bottom Arcade Cabinet Control Console */}
-      <div className="w-full bg-stone-900 border-x border-b border-amber-900/60 rounded-b-lg p-4 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
-        {/* Voltage Mode Selector */}
-        <div className="flex flex-col gap-1 w-full md:w-auto">
-          <span className="text-[11px] text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1">
-            <Cpu className="w-3.5 h-3.5" /> VOLTAGE GENERATOR MODE
-          </span>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => !isPlaying && setMode(VoltageMode.AC_SYNCHRONOUS)}
-              disabled={isPlaying}
-              className={`px-3 py-2 text-xs font-bold rounded border transition cursor-pointer flex-1 md:flex-none ${
-                mode === VoltageMode.AC_SYNCHRONOUS
-                  ? 'bg-sky-950/90 text-sky-200 border-sky-500 shadow-[0_0_12px_rgba(56,189,248,0.4)]'
-                  : 'bg-stone-800/80 text-stone-400 border-stone-700 hover:border-stone-500'
-              }`}
+              onClick={toggleMute}
+              className="p-2 bg-[#1c120c] hover:bg-[#382012] text-amber-300 border border-[#78350f] rounded shadow transition cursor-pointer active:scale-95"
+              title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
             >
-              AC SYNCHRONOUS (0.7x - 12.2x)
+              {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
             </button>
             <button
-              onClick={() => !isPlaying && setMode(VoltageMode.DC_SURGE)}
-              disabled={isPlaying}
-              className={`px-3 py-2 text-xs font-bold rounded border transition cursor-pointer flex-1 md:flex-none ${
-                mode === VoltageMode.DC_SURGE
-                  ? 'bg-amber-950/90 text-amber-200 border-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.4)]'
-                  : 'bg-stone-800/80 text-stone-400 border-stone-700 hover:border-stone-500'
-              }`}
+              onClick={() => setShowInfo(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1c120c] hover:bg-[#382012] text-amber-300 border border-[#78350f] rounded text-xs font-bold transition cursor-pointer active:scale-95 shadow"
             >
-              DC SURGE (1.0x - 25.0x JACKPOT)
+              <Info className="w-4 h-4" />
+              <span>RULES & RTP</span>
             </button>
           </div>
         </div>
 
-        {/* Bet Sizing Controls */}
-        <div className="flex flex-col gap-1 w-full md:w-auto">
-          <span className="text-[11px] text-amber-400 font-bold uppercase tracking-wider">
-            STAKE (USDC)
-          </span>
-          <div className="flex items-center gap-1.5">
-            {[0.1, 0.5, 1.0, 5.0, 10.0].map(val => (
+        {/* 16:9 Canvas Viewport */}
+        <div className="relative w-full border-y border-[#78350f]/60 bg-black">
+          <canvas
+            ref={canvasRef}
+            width={960}
+            height={540}
+            onMouseMove={handleMouseMove}
+            onClick={handleCanvasClick}
+            className="w-full h-auto block cursor-pointer"
+          />
+        </div>
+
+        {/* Diegetic Industrial Control Console */}
+        <div className="w-full bg-gradient-to-b from-[#1c120c] via-[#140c08] to-[#0c0806] p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-5 border-t border-[#78350f]/60">
+          
+          {/* Mode Selector (Heavy Industrial Toggle Switch Style) */}
+          <div className="flex flex-col gap-1.5 w-full md:w-auto">
+            <span className="text-[11px] text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <Radio className="w-3.5 h-3.5 text-amber-400" /> GENERATOR COUPLING
+            </span>
+            <div className="flex gap-2">
               <button
-                key={val}
-                onClick={() => !isPlaying && setWager(val)}
+                onClick={() => !isPlaying && setMode(VoltageMode.AC_SYNCHRONOUS)}
                 disabled={isPlaying}
-                className={`px-2.5 py-1.5 text-xs rounded border transition cursor-pointer ${
-                  wager === val
-                    ? 'bg-amber-600 text-stone-950 font-bold border-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.5)]'
-                    : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
+                className={`relative px-4 py-2.5 text-xs font-black rounded-lg border-2 transition cursor-pointer flex-1 md:flex-none flex items-center gap-2 ${
+                  mode === VoltageMode.AC_SYNCHRONOUS
+                    ? 'bg-gradient-to-b from-sky-900 to-sky-950 text-sky-200 border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.5)]'
+                    : 'bg-[#18110b] text-stone-400 border-[#4a2e16] hover:border-[#78350f]'
                 }`}
               >
-                ${val}
+                <span className={`w-2.5 h-2.5 rounded-full ${mode === VoltageMode.AC_SYNCHRONOUS ? 'bg-sky-400 shadow-[0_0_8px_#38bdf8]' : 'bg-stone-700'}`} />
+                <span>AC SYNCHRONOUS (0.7x – 12.2x)</span>
               </button>
-            ))}
-          </div>
-        </div>
 
-        {/* Slam Knife Switch Big Button */}
-        <div className="w-full md:w-auto">
-          <button
-            onClick={triggerEngagement}
-            disabled={isPlaying || balance < wager}
-            className={`w-full md:w-48 py-3 px-6 text-sm font-black rounded-lg border-2 uppercase tracking-widest transition shadow-2xl cursor-pointer ${
-              isPlaying
-                ? 'bg-stone-800 text-stone-500 border-stone-700 cursor-not-allowed'
-                : balance < wager
-                ? 'bg-red-950 text-red-300 border-red-700 cursor-not-allowed'
-                : 'bg-gradient-to-r from-amber-600 via-orange-500 to-amber-600 text-stone-950 border-amber-300 hover:brightness-110 active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.6)]'
-            }`}
-          >
-            {isPlaying ? '⚡ ENERGIZED ⚡' : balance < wager ? 'INSUFFICIENT FUNDS' : 'SLAM SWITCH'}
-          </button>
+              <button
+                onClick={() => !isPlaying && setMode(VoltageMode.DC_SURGE)}
+                disabled={isPlaying}
+                className={`relative px-4 py-2.5 text-xs font-black rounded-lg border-2 transition cursor-pointer flex-1 md:flex-none flex items-center gap-2 ${
+                  mode === VoltageMode.DC_SURGE
+                    ? 'bg-gradient-to-b from-amber-900 to-amber-950 text-amber-200 border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
+                    : 'bg-[#18110b] text-stone-400 border-[#4a2e16] hover:border-[#78350f]'
+                }`}
+              >
+                <span className={`w-2.5 h-2.5 rounded-full ${mode === VoltageMode.DC_SURGE ? 'bg-amber-400 shadow-[0_0_8px_#f59e0b]' : 'bg-stone-700'}`} />
+                <span>DC SURGE (1.0x – 25.0x JACKPOT)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Stamped Milled Brass Token Stake Selector */}
+          <div className="flex flex-col gap-1.5 w-full md:w-auto items-center md:items-start">
+            <span className="text-[11px] text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-amber-400" /> STAKE TOKENS (USDC)
+            </span>
+            <div className="flex items-center gap-2">
+              {[0.1, 0.5, 1.0, 5.0, 10.0].map(val => (
+                <button
+                  key={val}
+                  onClick={() => !isPlaying && setWager(val)}
+                  disabled={isPlaying}
+                  className={`w-11 h-11 rounded-full text-xs font-black border-2 transition cursor-pointer flex items-center justify-center shadow-lg active:scale-95 ${
+                    wager === val
+                      ? 'bg-gradient-to-b from-[#fef08a] via-[#f59e0b] to-[#b45309] text-stone-950 border-[#fff] shadow-[0_0_15px_rgba(245,158,11,0.7)] scale-105'
+                      : 'bg-gradient-to-b from-[#382012] via-[#24140a] to-[#140c08] text-amber-200 border-[#78350f] hover:border-amber-400'
+                  }`}
+                >
+                  ${val}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Massive Master Energize Industrial Push Plate */}
+          <div className="w-full md:w-auto">
+            <button
+              onClick={triggerEngagement}
+              disabled={isPlaying || balance < wager}
+              className={`w-full md:w-52 py-3.5 px-6 text-sm font-black rounded-xl border-2 uppercase tracking-widest transition shadow-2xl cursor-pointer ${
+                isPlaying
+                  ? 'bg-stone-900 text-stone-500 border-stone-800 cursor-not-allowed'
+                  : balance < wager
+                  ? 'bg-red-950 text-red-300 border-red-700 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-[#ea580c] via-[#f59e0b] to-[#ea580c] text-stone-950 border-[#fef08a] hover:brightness-115 active:scale-95 shadow-[0_0_25px_rgba(249,115,22,0.6)]'
+              }`}
+            >
+              {isPlaying ? '⚡ ENERGIZED ⚡' : balance < wager ? 'INSUFFICIENT FUNDS' : '⚡ MASTER ENERGIZE ⚡'}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Rules & Mathematics Modal */}
+      {/* Transparent Rules & Mathematical Proof Modal */}
       {showInfo && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-stone-900 border-2 border-amber-500/80 rounded-lg max-w-2xl w-full p-6 text-stone-200 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-gradient-to-b from-stone-900 to-stone-950 border-2 border-amber-500/80 rounded-xl max-w-2xl w-full p-6 text-stone-200 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-amber-900/60 mb-4">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="w-5 h-5 text-amber-400" />
@@ -462,8 +481,8 @@ export const ArcStrikeGame: React.FC = () => {
 
             <div className="space-y-4 text-xs font-['Share_Tech_Mono'] leading-relaxed">
               <p>
-                <strong className="text-amber-400">ARC STRIKE // TESLA OVERLOAD</strong> is a 100% on-chain
-                resolvable game built for the <strong>Chain Casino SDK (ICasinoGameV2)</strong>. Outcomes are governed by 5 independent bytes drawn from a Base L2 Verifiable Random Function (VRF) seed over 2,048 state partitions.
+                <strong className="text-amber-400">ARC STRIKE // TESLA OVERLOAD</strong> is an original on-chain
+                casino game built for the <strong>Chain Casino SDK (ICasinoGameV2)</strong>. Resolution is strictly governed by 5 independent random bytes drawn from a Base L2 Verifiable Random Function (VRF) seed over 2,048 state partitions.
               </p>
 
               <div className="border border-stone-800 rounded p-3 bg-stone-950/60">

@@ -3,6 +3,8 @@
  * Renders 1899 Nikola Tesla laboratory, dual secondary coils, and 5 ceramic spark-gap insulators.
  */
 
+import { assetLoader } from './assetLoader';
+
 export interface InsulatorPos {
   x: number;
   y: number;
@@ -21,20 +23,20 @@ export function drawTeslaLaboratory(
 ) {
   // 1. Dark Victorian brick / stone wall background
   const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-  bgGrad.addColorStop(0, '#0a0a0c');
-  bgGrad.addColorStop(0.65, '#121016');
-  bgGrad.addColorStop(1, '#08080a');
+  bgGrad.addColorStop(0, '#070608');
+  bgGrad.addColorStop(0.65, '#100e14');
+  bgGrad.addColorStop(1, '#060508');
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, w, h);
 
   // Subtle ambient flash from lightning
   if (ambientFlash > 0.01) {
-    ctx.fillStyle = `rgba(147, 197, 253, ${ambientFlash * 0.15})`;
+    ctx.fillStyle = `rgba(168, 85, 247, ${ambientFlash * 0.12})`;
     ctx.fillRect(0, 0, w, h);
   }
 
   // 2. Background brick masonry lines (faint)
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
   ctx.lineWidth = 1;
   const brickH = 24;
   for (let y = 0; y < h * 0.7; y += brickH) {
@@ -116,12 +118,11 @@ export function drawTeslaLaboratory(
   });
 
   // 6. Dual Monumental Tesla Coils (Left & Right)
-  drawTeslaCoil(ctx, 80, floorY, 110, 240, frame, 'left');
-  drawTeslaCoil(ctx, w - 80, floorY, 110, 240, frame, 'right');
+  drawTeslaCoil(ctx, 80, floorY, 125, 255, frame, 'left');
+  drawTeslaCoil(ctx, w - 80, floorY, 125, 255, frame, 'right');
 }
 
 function drawCopperPipes(ctx: CanvasRenderingContext2D, w: number, _h: number) {
-  // Top horizontal pipe
   const pipeGrad = ctx.createLinearGradient(0, 26, 0, 36);
   pipeGrad.addColorStop(0, '#78350f');
   pipeGrad.addColorStop(0.4, '#b45309');
@@ -130,7 +131,6 @@ function drawCopperPipes(ctx: CanvasRenderingContext2D, w: number, _h: number) {
   ctx.fillStyle = pipeGrad;
   ctx.fillRect(0, 26, w, 10);
 
-  // Pipe flanges / rings
   ctx.fillStyle = '#d97706';
   for (let px = 60; px < w; px += 180) {
     ctx.fillRect(px - 4, 24, 8, 14);
@@ -144,100 +144,59 @@ function drawTeslaCoil(
   coilW: number,
   coilH: number,
   frame: number,
-  _side: 'left' | 'right'
+  side: 'left' | 'right'
 ) {
   const topY = baseY - coilH;
+  const coilImg = assetLoader.getImage('tesla_coil');
 
-  // Heavy stepped cast-iron base
-  ctx.fillStyle = '#1c1917';
-  ctx.fillRect(cx - coilW * 0.45, baseY - 20, coilW * 0.9, 20);
-  ctx.fillStyle = '#292524';
-  ctx.fillRect(cx - coilW * 0.38, baseY - 35, coilW * 0.76, 15);
-  ctx.fillStyle = '#44403c';
-  ctx.fillRect(cx - coilW * 0.3, baseY - 45, coilW * 0.6, 10);
+  if (coilImg && coilImg.complete) {
+    ctx.save();
+    if (side === 'right') {
+      ctx.translate(cx, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(coilImg, -coilW / 2, topY, coilW, coilH);
+      ctx.restore();
+    } else {
+      ctx.drawImage(coilImg, cx - coilW / 2, topY, coilW, coilH);
+    }
 
-  // Grounding copper ribbon
-  ctx.fillStyle = '#d97706';
-  ctx.fillRect(cx - coilW * 0.35, baseY - 12, 6, 12);
-
-  // Secondary Coil Cylinder (tightly wound copper windings)
-  const cylTop = topY + 45;
-  const cylBottom = baseY - 45;
-  const cylH = cylBottom - cylTop;
-  const cylW = coilW * 0.46;
-
-  // Base cylinder gradient
-  const coilGrad = ctx.createLinearGradient(cx - cylW / 2, 0, cx + cylW / 2, 0);
-  coilGrad.addColorStop(0, '#451a03');
-  coilGrad.addColorStop(0.2, '#9a3412');
-  coilGrad.addColorStop(0.5, '#ea580c');
-  coilGrad.addColorStop(0.8, '#c2410c');
-  coilGrad.addColorStop(1, '#451a03');
-  ctx.fillStyle = coilGrad;
-  ctx.fillRect(cx - cylW / 2, cylTop, cylW, cylH);
-
-  // Individual copper wire turns (horizontal micro-lines)
-  ctx.strokeStyle = 'rgba(254, 215, 170, 0.35)';
-  ctx.lineWidth = 1;
-  for (let wy = cylTop; wy < cylBottom; wy += 3.5) {
+    // Dynamic Coronal Corona Glow Aura on the top Toroid
+    const toroidY = topY + 30;
+    const pulse = Math.sin(frame * 0.1 + (side === 'left' ? 0 : 1.5)) * 0.25 + 0.75;
+    const glow = ctx.createRadialGradient(cx, toroidY, 15, cx, toroidY, 65);
+    glow.addColorStop(0, `rgba(168, 85, 247, ${0.6 * pulse})`);
+    glow.addColorStop(0.5, `rgba(56, 189, 248, ${0.3 * pulse})`);
+    glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.moveTo(cx - cylW / 2 + 1, wy);
-    ctx.lineTo(cx + cylW / 2 - 1, wy);
-    ctx.stroke();
-  }
-
-  // Primary coil base winding (wider, heavy copper tubing at bottom)
-  const primW = coilW * 0.64;
-  for (let py = 0; py < 3; py++) {
-    const ypos = cylBottom - 10 - py * 10;
-    ctx.fillStyle = '#b45309';
-    ctx.beginPath();
-    ctx.ellipse(cx, ypos, primW / 2, 7, 0, 0, Math.PI * 2);
+    ctx.arc(cx, toroidY, 65, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+
+    // Occasional subtle surface spark
+    if (frame % 8 === 0) {
+      const sparkAngle = Math.random() * Math.PI * 2;
+      const sx = cx + Math.cos(sparkAngle) * 38;
+      const sy = toroidY + Math.sin(sparkAngle) * 16;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + (Math.random() - 0.5) * 14, sy + (Math.random() - 0.5) * 14);
+      ctx.stroke();
+    }
+  } else {
+    // Procedural fallback if image is still loading
+    const cylTop = topY + 45;
+    const cylBottom = baseY - 45;
+    const cylH = cylBottom - cylTop;
+    const cylW = coilW * 0.46;
+    const coilGrad = ctx.createLinearGradient(cx - cylW / 2, 0, cx + cylW / 2, 0);
+    coilGrad.addColorStop(0, '#451a03');
+    coilGrad.addColorStop(0.5, '#ea580c');
+    coilGrad.addColorStop(1, '#451a03');
+    ctx.fillStyle = coilGrad;
+    ctx.fillRect(cx - cylW / 2, cylTop, cylW, cylH);
   }
-
-  // Toroidal Top Terminal (The iconic smooth metal donut electrode)
-  const toroidY = topY + 20;
-  const toroidR = coilW * 0.52;
-  const toroidH = 26;
-
-  // Corona glow aura around toroid
-  const pulse = Math.sin(frame * 0.08) * 0.2 + 0.8;
-  const glow = ctx.createRadialGradient(cx, toroidY, toroidR * 0.3, cx, toroidY, toroidR * 1.5);
-  glow.addColorStop(0, `rgba(168, 85, 247, ${0.45 * pulse})`);
-  glow.addColorStop(0.5, `rgba(56, 189, 248, ${0.2 * pulse})`);
-  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.ellipse(cx, toroidY, toroidR * 1.5, toroidH * 2.2, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Toroid body (polished chrome/aluminium sheen)
-  const toroidGrad = ctx.createLinearGradient(cx, toroidY - toroidH, cx, toroidY + toroidH);
-  toroidGrad.addColorStop(0, '#f5f5f4');
-  toroidGrad.addColorStop(0.3, '#d6d3d1');
-  toroidGrad.addColorStop(0.6, '#78716c');
-  toroidGrad.addColorStop(1, '#292524');
-  ctx.fillStyle = toroidGrad;
-  ctx.beginPath();
-  ctx.ellipse(cx, toroidY, toroidR, toroidH, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Top highlight rim
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.ellipse(cx, toroidY - 3, toroidR * 0.85, toroidH * 0.7, 0, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Spun metal central hub cap
-  ctx.fillStyle = '#a8a29e';
-  ctx.beginPath();
-  ctx.arc(cx, toroidY, 10, 0, Math.PI * 2);
-  ctx.fill();
 }
 
 /**
@@ -253,7 +212,7 @@ export function getInsulatorPositions(w: number, h: number): InsulatorPos[] {
   for (let i = 0; i < 5; i++) {
     const cx = startX + i * span;
     const width = 48;
-    const height = 95;
+    const height = 96;
     const y = benchY - height;
     positions.push({
       x: cx - width / 2,
@@ -261,14 +220,14 @@ export function getInsulatorPositions(w: number, h: number): InsulatorPos[] {
       width,
       height,
       electrodeX: cx,
-      electrodeY: y + 12,
+      electrodeY: y + 14,
     });
   }
   return positions;
 }
 
 /**
- * Draws the 5 ceramic spark-gap insulators with status lights & brass plates
+ * Draws the 5 ceramic spark-gap insulators with high-definition sprite & status effects
  */
 export function drawCeramicInsulators(
   ctx: CanvasRenderingContext2D,
@@ -278,95 +237,46 @@ export function drawCeramicInsulators(
   activeEvaluatingIndex: number,
   frame: number
 ) {
+  const insImg = assetLoader.getImage('insulator');
+
   positions.forEach((pos, idx) => {
     const cx = pos.electrodeX;
     const bottomY = pos.y + pos.height;
-
-    // 1. Cast-iron pedestal mount
-    ctx.fillStyle = '#292524';
-    ctx.fillRect(cx - 24, bottomY - 14, 48, 14);
-    ctx.fillStyle = '#44403c';
-    ctx.fillRect(cx - 18, bottomY - 22, 36, 8);
-
-    // 2. Glazed Ribbed Porcelain Insulator Stack (5 stepped rings)
-    const ringCount = 5;
-    const stackTop = pos.y + 24;
-    const ringH = (bottomY - 22 - stackTop) / ringCount;
-
-    for (let r = 0; r < ringCount; r++) {
-      const ry = stackTop + r * ringH;
-      const ringW = 34 - r * 1.5;
-
-      const ringGrad = ctx.createLinearGradient(cx - ringW / 2, 0, cx + ringW / 2, 0);
-      ringGrad.addColorStop(0, '#78716c');
-      ringGrad.addColorStop(0.3, '#f59e0b');
-      ringGrad.addColorStop(0.6, '#e7e5e4');
-      ringGrad.addColorStop(1, '#57534e');
-      ctx.fillStyle = ringGrad;
-
-      // Draw rounded insulator disc
-      ctx.beginPath();
-      ctx.ellipse(cx, ry + ringH / 2, ringW / 2, ringH * 0.45, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Specular highlight line
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.ellipse(cx, ry + ringH * 0.35, ringW * 0.35, ringH * 0.25, 0, 0, Math.PI);
-      ctx.stroke();
-    }
-
-    // 3. Brass mounting collar
-    ctx.fillStyle = '#b45309';
-    ctx.fillRect(cx - 9, pos.y + 16, 18, 9);
-
-    // 4. Tungsten Spark-Gap Electrode Ball (Spherical terminal)
     const isBlown = faultStage === idx;
     const isPassed = idx < cleared;
     const isCurrent = activeEvaluatingIndex === idx;
 
-    const ballR = 11;
-    const ballY = pos.electrodeY;
+    if (insImg && insImg.complete) {
+      // Draw high-definition glazed porcelain insulator sprite
+      ctx.drawImage(insImg, pos.x, pos.y, pos.width, pos.height);
 
-    if (isBlown) {
-      // Scorched blackened electrode with smoke particles
-      ctx.fillStyle = '#1c1917';
-      ctx.beginPath();
-      ctx.arc(cx, ballY, ballR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#dc2626';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    } else {
-      // Polished metal tungsten ball
-      const ballGrad = ctx.createRadialGradient(cx - 3, ballY - 3, 2, cx, ballY, ballR);
-      if (isPassed || isCurrent) {
-        ballGrad.addColorStop(0, '#ffffff');
-        ballGrad.addColorStop(0.4, '#67e8f9');
-        ballGrad.addColorStop(1, '#0e7490');
-      } else {
-        ballGrad.addColorStop(0, '#ffffff');
-        ballGrad.addColorStop(0.4, '#cbd5e1');
-        ballGrad.addColorStop(1, '#334155');
-      }
-      ctx.fillStyle = ballGrad;
-      ctx.beginPath();
-      ctx.arc(cx, ballY, ballR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Coronal discharge aura on active or passed electrodes
-      if (isPassed || isCurrent) {
-        const pGlow = Math.sin(frame * 0.15 + idx) * 0.2 + 0.8;
-        ctx.fillStyle = `rgba(56, 189, 248, ${0.4 * pGlow})`;
+      // Electrode visual state overlay
+      const ballY = pos.electrodeY;
+      if (isBlown) {
+        // Blown fault: red electrical burn and warning halo
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
         ctx.beginPath();
-        ctx.arc(cx, ballY, ballR + 6, 0, Math.PI * 2);
+        ctx.arc(cx, ballY, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if (isPassed || isCurrent) {
+        // Passed: Vibrant electric cyan coronal plasma discharge
+        const pGlow = Math.sin(frame * 0.15 + idx) * 0.25 + 0.75;
+        ctx.fillStyle = `rgba(56, 189, 248, ${0.5 * pGlow})`;
+        ctx.beginPath();
+        ctx.arc(cx, ballY, 15, 0, Math.PI * 2);
         ctx.fill();
       }
+    } else {
+      // Fallback
+      ctx.fillStyle = '#f5f5f4';
+      ctx.fillRect(pos.x, pos.y, pos.width, pos.height);
     }
 
-    // 5. Status Indicator Jewel Lamp on pedestal
-    const lampY = bottomY - 7;
+    // Status Indicator Jewel Lamp on pedestal
+    const lampY = bottomY - 6;
     ctx.fillStyle = '#0a0a0a';
     ctx.beginPath();
     ctx.arc(cx, lampY, 5, 0, Math.PI * 2);
@@ -378,7 +288,7 @@ export function drawCeramicInsulators(
     } else if (isPassed) {
       lampColor = '#22c55e'; // Green safe pass
     } else if (isCurrent) {
-      lampColor = (frame % 20 < 10) ? '#eab308' : '#ca8a04'; // Flashing yellow checking
+      lampColor = (frame % 20 < 10) ? '#eab308' : '#ca8a04'; // Flashing yellow
     }
 
     ctx.fillStyle = lampColor;
@@ -386,18 +296,18 @@ export function drawCeramicInsulators(
     ctx.arc(cx, lampY, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // 6. Engraved Brass Nameplate
-    const plateY = bottomY + 4;
+    // Engraved Brass Nameplate
+    const plateY = bottomY + 3;
     ctx.fillStyle = '#78350f';
-    ctx.fillRect(cx - 28, plateY, 56, 18);
+    ctx.fillRect(cx - 28, plateY, 56, 17);
     ctx.fillStyle = '#b45309';
-    ctx.fillRect(cx - 26, plateY + 1, 52, 16);
+    ctx.fillRect(cx - 26, plateY + 1, 52, 15);
 
     ctx.font = 'bold 9px "Share Tech Mono", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#fef08a';
     const kvLabels = ['100 kV', '250 kV', '380 kV', '450 kV', '500 kV'];
-    ctx.fillText(kvLabels[idx], cx, plateY + 9);
+    ctx.fillText(kvLabels[idx], cx, plateY + 8);
   });
 }
