@@ -1,0 +1,39 @@
+{
+  "manifestVersion": "2.0.0",
+  "gameId": "arc-strike",
+  "name": "ARC STRIKE // TESLA OVERLOAD",
+  "version": "1.0.0",
+  "description": "1899 Colorado Springs Nikola Tesla High-Voltage Laboratory Casino Game. Charge across 5 ceramic spark-gap insulators to achieve the 500kV Overload Jackpot.",
+  "author": "Antigravity Engineering",
+  "contract": {
+    "solidityFile": "contracts/ArcStrike.sol",
+    "interface": "ICasinoGameV2",
+    "compiler": "^0.8.20"
+  },
+  "mechanics": {
+    "type": "sequential-dielectric-surge",
+    "stages": 5,
+    "modes": [
+      {
+        "id": 0,
+        "name": "AC Synchronous",
+        "variance": "Medium",
+        "maxMultiplier": "12.2240x",
+        "rtp": "96.000000%"
+      },
+      {
+        "id": 1,
+        "name": "DC Surge",
+        "variance": "High",
+        "maxMultiplier": "25.0240x",
+        "rtp": "96.000000%"
+      }
+    ]
+  },
+  "certification": {
+    "rtp": "96.000000%",
+    "moduloBias": "0.000000%",
+    "drift": "0 wei",
+    "stateSpace": 2048
+  }
+}
